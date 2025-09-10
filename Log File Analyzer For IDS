@@ -1,0 +1,90 @@
+import re
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Step 1: Parse Apache logs example
+def parse_apache_log_line(line):
+    # Simple Apache log regex pattern for beginner
+    log_pattern = r'(\S+) - - \[(.*?)\] "(.*?)" (\d{3}) (\d+)'
+    match = re.match(log_pattern, line)
+    if match:
+        ip = match.group(1)
+        timestamp = match.group(2)
+        request = match.group(3)
+        status = match.group(4)
+        size = match.group(5)
+        return ip, timestamp, request, status, size
+    return None
+
+# Step 1: Parse SSH logs example
+def parse_ssh_log_line(line):
+    # Simple SSH log detection for accepted and failed login attempts
+    ssh_pattern = r'(\w{3} \d+ \d+:\d+:\d+) (\S+) sshd\[.*\]: (Accepted|Failed) password for (\S+) from (\S+) port \d+ ssh2'
+    match = re.match(ssh_pattern, line)
+    if match:
+        timestamp = match.group(1)
+        host = match.group(2)
+        action = match.group(3)
+        user = match.group(4)
+        ip = match.group(5)
+        return timestamp, host, action, user, ip
+    return None
+
+# Step 2: Detect brute force attempts by counting failed login attempts by IP
+def detect_brute_force_attempts(ssh_log_lines):
+    failed_attempts = {}
+    for line in ssh_log_lines:
+        parsed = parse_ssh_log_line(line)
+        if parsed and parsed[2] == 'Failed':
+            ip = parsed[4]
+            failed_attempts[ip] = failed_attempts.get(ip, 0) + 1
+    # Flag IPs with more than a threshold as suspicious
+    suspicious_ips = {ip: count for ip, count in failed_attempts.items() if count > 5}
+    return suspicious_ips
+
+# Step 3: Visualize access patterns by IP
+def plot_access_patterns(ip_list):
+    ip_counts = pd.Series(ip_list).value_counts()
+    ip_counts.plot(kind='bar', figsize=(12,6))
+    plt.title('Access counts by IP')
+    plt.xlabel('IP Address')
+    plt.ylabel('Access Count')
+    plt.show()
+
+# Step 4: Cross-reference with IP blacklist (simple example)
+def check_ip_blacklist(ip, blacklist):
+    return ip in blacklist
+
+# Step 5: Export incidents to CSV
+def export_incidents(incident_dict, filename='incidents.csv'):
+    df = pd.DataFrame(list(incident_dict.items()), columns=['IP', 'Count'])
+    df.to_csv(filename, index=False)
+    print(f"Incidents exported to {filename}")
+
+# Sample usage
+if __name__ == '__main__':
+    # Load example SSH logs (replace with actual log file reading)
+    ssh_log_sample = [
+        "Jan 12 17:13:09 node1 sshd[18347]: Failed password for invalid user admin from 192.0.2.10 port 42304 ssh2",
+        "Jan 12 17:14:09 node1 sshd[18348]: Failed password for invalid user admin from 192.0.2.10 port 42305 ssh2",
+        "Jan 12 17:15:09 node1 sshd[18349]: Failed password for invalid user admin from 192.0.2.10 port 42306 ssh2",
+        "Jan 12 17:16:09 node1 sshd[18350]: Failed password for invalid user admin from 192.0.2.10 port 42307 ssh2",
+        "Jan 12 17:17:09 node1 sshd[18351]: Failed password for invalid user guest from 203.0.113.9 port 33322 ssh2",
+        "Jan 12 17:18:09 node1 sshd[18352]: Accepted password for user from 198.51.100.5 port 42308 ssh2"
+    ]
+
+    suspicious = detect_brute_force_attempts(ssh_log_sample)
+    print("Suspicious IPs with multiple failed login attempts:", suspicious)
+
+    # Visualize suspicious IPs access count
+    plot_access_patterns([ip for ip in suspicious])
+
+    # Export to CSV
+    export_incidents(suspicious)
+
+    # Example IP blacklist
+    public_blacklist = {"192.0.2.10", "203.0.113.9"}
+
+    for ip in suspicious:
+        if check_ip_blacklist(ip, public_blacklist):
+            print(f"IP {ip} found in blacklist!")
